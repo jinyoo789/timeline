@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>DEV Timeline</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>"/>
-<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -384,18 +384,29 @@ function App(){
     requestAnimationFrame(()=>{syncing.current=false;});
   };
 
+  const skipNextRef=useRef(false);
+  const loadedRef=useRef(false);
+
   useEffect(()=>{
     const dbRef=window.fbRef(window.fbDb,"gantt-shared");
     window.fbOnValue(dbRef,(snap)=>{
+      if(skipNextRef.current){skipNextRef.current=false;return;}
       const d=snap.val();
       if(d){
-        if(d.tasks)setTasks(d.tasks);if(d.devs)setDevs(d.devs);if(d.projs)setProjs(d.projs);if(d.crms)setCrms(d.crms);if(d.logs)setLogs(d.logs);
+        const arr=v=>Array.isArray(v)?v.filter(Boolean):v?Object.values(v).filter(Boolean):[];
+        const cleanTasks=ts=>arr(ts).map(t=>({...t,subtasks:arr(t.subtasks),deploys:arr(t.deploys||[])}));
+        const cleanProjs=ps=>arr(ps).map(p=>({...p,deploys:arr(p.deploys||[])}));
+        if(d.tasks)setTasks(cleanTasks(d.tasks));if(d.devs)setDevs(arr(d.devs));if(d.projs)setProjs(cleanProjs(d.projs));if(d.crms)setCrms(arr(d.crms));if(d.logs)setLogs(arr(d.logs));
         if(d.workload)setManualLoad(d.workload);
+        loadedRef.current=true;
       }
     });
   },[]);
   const save=useCallback((t,dv,pr,cr,lg)=>{
-    try{window.fbSet(window.fbRef(window.fbDb,"gantt-shared"),{tasks:t,devs:dv,projs:pr,crms:cr||[],logs:lg||[],workload:manualLoad});}catch(e){}
+    try{
+      skipNextRef.current=true;
+      window.fbSet(window.fbRef(window.fbDb,"gantt-shared"),{tasks:t,devs:dv,projs:pr,crms:cr||[],logs:lg||[],workload:manualLoad});
+    }catch(e){skipNextRef.current=false;}
   },[manualLoad]);
   const addLog=useCallback((action,target)=>{
     const entry={id:uid(),action,target,time:new Date().toISOString()};
@@ -1277,7 +1288,20 @@ function App(){
   );
 }
 
-ReactDOM.render(React.createElement(App), document.getElementById("root"));
+class ErrorBoundary extends React.Component {
+  constructor(props){super(props);this.state={error:null};}
+  static getDerivedStateFromError(error){return{error};}
+  render(){
+    if(this.state.error)return React.createElement("div",{style:{padding:40,textAlign:"center"}},
+      React.createElement("h2",null,"오류가 발생했습니다"),
+      React.createElement("pre",{style:{fontSize:12,color:"#ef4444",whiteSpace:"pre-wrap",marginTop:16}},this.state.error.toString()),
+      React.createElement("button",{onClick:()=>this.setState({error:null}),style:{marginTop:16,padding:"8px 20px",borderRadius:8,border:"none",background:"#6366f1",color:"#fff",cursor:"pointer"}},"다시 시도")
+    );
+    return this.props.children;
+  }
+}
+
+ReactDOM.render(React.createElement(ErrorBoundary,null,React.createElement(App)), document.getElementById("root"));
 </script>
 </body>
 </html>
